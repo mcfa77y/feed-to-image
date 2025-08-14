@@ -17,11 +17,13 @@ Examples:
 """
 
 import math
+import random
 import sys
 from typing import Tuple, Optional
 
 import qrcode
 import requests
+from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 from fonts.ttf import Roboto
 
@@ -167,28 +169,63 @@ def parse_command_line_arguments() -> Tuple[int, int, Optional[int]]:
     
     return target_width, target_height, comic_number
 
+def create_comic_url(comic_number: Optional[int] = None) -> str:
+    if comic_number is not None:        
+        return f"https://www.asofterworld.com/index.php?id={comic_number}"
+    else:
+        # random number between 1 and 1242
+        comic_number = random.randint(1, 1242)
+        return f"https://www.asofterworld.com/index.php?id={comic_number}"
 
-def fetch_xkcd_metadata(comic_number: Optional[int] = None) -> dict:
+def fetch_comic_metadata(comic_number: Optional[int] = None) -> dict:
     """
-    Fetch XKCD comic metadata from the API.
+    Fetch comic metadata from the HTML page.
     
     Args:
-        comic_number: Specific comic number, or None for latest
+        comic_number: Specific comic number, or None for random
         
     Returns:
         Dictionary containing comic metadata
     """
-    if comic_number is not None:
-        api_url = f"https://xkcd.com/{comic_number}/info.0.json"
-    else:
-        api_url = "https://xkcd.com/info.0.json"
+    comic_url = create_comic_url(comic_number)
     
     try:
-        response = requests.get(api_url)
+        response = requests.get(comic_url)
         response.raise_for_status()
-        return response.json()
+        
+        # Parse HTML content
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Extract comic image and metadata
+        comic_img_element = soup.select_one('#comicimg > img')
+        if not comic_img_element:
+            raise ValueError("Could not find comic image element")
+        
+        img_src = comic_img_element.get('src')
+        title = comic_img_element.get('title', '')
+        
+        # Extract comic number from URL or use the passed/generated one
+        if comic_number is None:
+            # Extract from URL if it was randomly generated
+            import re
+            match = re.search(r'id=(\d+)', comic_url)
+            comic_num = int(match.group(1)) if match else None
+        else:
+            comic_num = comic_number
+        
+        return {
+            'img': img_src,
+            'title': title,
+            'num': comic_num,
+            'alt': title,  # Using title as alt text as specified
+            'url': comic_url
+        }
+        
     except requests.RequestException as error:
-        print(f"Error fetching XKCD data: {error}")
+        print(f"Error fetching comic data: {error}")
+        sys.exit(1)
+    except Exception as error:
+        print(f"Error parsing comic metadata: {error}")
         sys.exit(1)
 
 
@@ -296,8 +333,8 @@ def main():
     canvas_width, canvas_height, comic_number = parse_command_line_arguments()
     
     # Fetch comic metadata
-    comic_metadata = fetch_xkcd_metadata(comic_number)
-    print(f"Processing XKCD #{comic_metadata.get('num')}: {comic_metadata.get('title')}")
+    comic_metadata = fetch_comic_metadata(comic_number)
+    print(f"Processing comic #{comic_metadata.get('num')}: {comic_metadata.get('title')}")
     
     # Download comic image
     comic_image = download_comic_image(comic_metadata.get("img"))
@@ -312,7 +349,7 @@ def main():
         comic_image = comic_image.resize((comic_width, comic_height))
     
     # Create QR code
-    comic_url = f"https://xkcd.com/{comic_metadata.get('num')}/"
+    comic_url = f"https://www.asofterworld.com/index.php?id={comic_metadata.get('num')}/"
     qr_code_image = create_qr_code(comic_url)
     qr_width, qr_height = qr_code_image.size
     
@@ -350,7 +387,7 @@ def main():
     # Render website attribution
     render_text_in_rectangle(
         drawing_context,
-        "xkcd.com",
+        "www.asofterworld.com",
         default_font,
         (0, 0, 0),  # Black text
         (qr_x, qr_y + qr_height, qr_x + qr_width, qr_y + qr_height + QR_CODE_BOTTOM_OFFSET)
@@ -358,7 +395,7 @@ def main():
     
     # Save output image
     filename_suffix = generate_filename_suffix(comic_metadata, canvas_width, canvas_height)
-    output_filename = f"{OUTPUT_DIRECTORY}/xkcd{filename_suffix}.jpg"
+    output_filename = f"{OUTPUT_DIRECTORY}/softer_world{filename_suffix}.jpg"
     output_canvas.save(output_filename)
     
     print(f"Generated image saved as: {output_filename}")

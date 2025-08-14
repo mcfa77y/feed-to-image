@@ -1,0 +1,6 @@
+qrcode[pil]
+font-roboto
+Pillow
+beautifulsoup4
+requests
+setuptools
